@@ -93,6 +93,18 @@ fun GameScreen(modifier: Modifier = Modifier, viewModel: GameViewModel = viewMod
 
             Spacer(Modifier.height(16.dp))
 
+            // Undo ("무르기"): disabled while there's nothing to undo, and while
+            // the AI is still thinking — see the comment on GameViewModel.undo().
+            OutlinedButton(
+                onClick = { viewModel.undo() },
+                enabled = uiState.canUndo && !uiState.aiThinking,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("↩️  무르기")
+            }
+
+            Spacer(Modifier.height(8.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

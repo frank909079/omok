@@ -79,3 +79,36 @@ No emulator or physical device was available in this environment (`adb devices` 
 ### Still open (not done yet)
 - Manual on-device confirmation of the optimized build (above).
 - Store listing, privacy policy, Data Safety form, closed testing (12 testers / 14 days), content rating — the non-code parts of the original Play Store checklist.
+
+---
+
+## 2026-08-26 — Added Undo ("무르기")
+
+**Goal:** Add the take-back-a-move feature that v1 intentionally skipped (see the original journal: "이동 기록은 이미 있어서 ~20줄이면 추가 가능" — "move history already exists, so ~20 lines should do it").
+
+### Why it really was that simple
+`Board` (`game/Board.kt`) is **immutable** — `place()` never changes the board you call it on, it always returns a brand-new `Board` with one more stone on it. That means every board state that ever existed during a game is still sitting untouched in memory somewhere. So "undo" doesn't need any special "erase a stone" logic — it just needs to **remember old `Board` objects and hand one back later.** That's exactly what a *stack* (a last-in-first-out list — think of a stack of plates, you only ever add/remove from the top) is for.
+
+### Design decision: undo rewinds one full turn, not one stone
+This is player-vs-AI, not player-vs-player. If Undo only removed *your* stone, the AI would suddenly be "reacting" to a board it never actually played against — confusing and glitchy. So Undo always rewinds to the board exactly as it was **right before your last move**, discarding both your move and the AI's reply to it. Tap it twice to go back two full turns. Because it's a stack, this multi-step rewind comes for free — no extra code needed beyond "keep popping."
+
+### What was done, step by step
+
+1. **`GameViewModel.kt`** — added `private val undoHistory = ArrayDeque<Board>()`.
+   - In `onPlayerTap()`, right before your move is applied, the *current* board gets pushed onto this stack (`undoHistory.addLast(state.board)`) — that's the snapshot to come back to later.
+   - Added `fun undo()`: pops the most recent snapshot off the stack and makes it the current board again, resets whose turn it is back to the player, and clears any "game over" result (so you can keep playing).
+   - Guard: `undo()` does nothing while `aiThinking == true`. Reason: the AI's move is being calculated on a background thread (`Dispatchers.Default`, see `requestAiMove()`); if you rewound *while* that calculation was still running, it would land a moment later and silently resurrect a stone you just undid.
+   - `resetGame()` and `chooseLevelUp()` (both start a fresh board) now also clear `undoHistory` — otherwise you could theoretically undo *into* the previous finished game.
+   - Added `canUndo: Boolean` to `GameUiState` so the UI knows when the button should be tappable.
+
+2. **`GameScreen.kt`** — added a full-width "↩️ 무르기" `OutlinedButton` above the existing button row, wired to `viewModel.undo()`, `enabled = uiState.canUndo && !uiState.aiThinking`.
+
+### Verification
+- `./gradlew testDebugUnitTest` — existing tests still pass (this feature doesn't touch `game`/`ai` logic, so no surprise there).
+- `./gradlew assembleDebug` — compiles cleanly.
+- `./gradlew assembleRelease` — R8-optimized build (from the previous entry) still succeeds with the new code, including `lintVitalRelease`.
+- **Not verified by me:** actual on-device play. `GameViewModel` extends `AndroidViewModel`, which needs a real (or emulated) Android runtime to instantiate — this project has no Robolectric/instrumented-test setup, so this class isn't unit-testable on plain JVM the way `game`/`ai` are. The signed release APK was sent for a manual test: play a couple of moves, tap 무르기, confirm the board rewinds and it's your turn again; confirm the button is greyed out on move 1 and stays disabled while "생각 중…" is showing.
+
+### Still open
+- Manual confirmation of Undo on a real device (above).
+- Everything from the Play Store checklist still open from the previous entries.

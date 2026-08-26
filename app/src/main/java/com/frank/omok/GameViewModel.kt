@@ -33,7 +33,10 @@ data class GameUiState(
     val bestLevel: Int = PlayerStore.MIN_LEVEL,
     val levelUpChoices: List<Int>? = null,
     val soundEnabled: Boolean = true,
-    val celebrationTrigger: Int = 0
+    val celebrationTrigger: Int = 0,
+    // Whether the Undo button should be tappable right now — true only when
+    // there is at least one saved board to go back to (see `undoHistory` below).
+    val canUndo: Boolean = false
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -45,6 +48,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
+
+    // Undo history: a stack (LIFO — Last In, First Out) of past board states.
+    // Board is immutable (place() always returns a *new* Board, see Board.kt),
+    // so every past board is still a valid, untouched snapshot we can just hand
+    // back later — no need to "erase" a stone, we just swap the whole board out.
+    // We push onto this right before the player's move is applied, so popping
+    // one entry rewinds past both that move AND the AI's reply to it.
+    private val undoHistory = ArrayDeque<Board>()
 
     init {
         viewModelScope.launch {
@@ -71,6 +82,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             Log.d("Omok", "occupied -> $row,$col ignored")
             return
         }
+
+        // Save the board exactly as it is NOW, before this move is applied.
+        // This is the snapshot Undo will restore later.
+        undoHistory.addLast(state.board)
 
         val newBoard = state.board.place(row, col, playerStone)
         applyMove(newBoard, Point(row, col), playerStone)
@@ -110,7 +125,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 board = newBoard,
                 turn = if (result == GameResult.Playing) nextTurn else it.turn,
-                result = result
+                result = result,
+                canUndo = undoHistory.isNotEmpty()
             )
         }
 
@@ -134,27 +150,54 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Pops one snapshot off the undo stack and makes it the current board again.
+    // Popping rewinds past the player's last move AND the AI's reply to it, so
+    // the turn always comes back to the player. Calling this repeatedly walks
+    // further back in history, one full turn at a time.
+    fun undo() {
+        val state = _uiState.value
+        // Don't rewind mid-AI-turn: the AI's move is still being computed on a
+        // background thread, and letting it land after we've already jumped to
+        // an older board would silently resurrect a stone we just undid.
+        if (state.aiThinking) return
+
+        val previousBoard = undoHistory.removeLastOrNull() ?: return
+        _uiState.update {
+            it.copy(
+                board = previousBoard,
+                turn = playerStone,
+                result = GameResult.Playing,
+                levelUpChoices = null,
+                canUndo = undoHistory.isNotEmpty()
+            )
+        }
+    }
+
     fun chooseLevelUp(delta: Int) {
         viewModelScope.launch { playerStore.recordWin(delta) }
+        undoHistory.clear()
         _uiState.update {
             it.copy(
                 board = Board(),
                 turn = Stone.BLACK,
                 result = GameResult.Playing,
                 aiThinking = false,
-                levelUpChoices = null
+                levelUpChoices = null,
+                canUndo = false
             )
         }
     }
 
     fun resetGame() {
+        undoHistory.clear()
         _uiState.update {
             it.copy(
                 board = Board(),
                 turn = Stone.BLACK,
                 result = GameResult.Playing,
                 aiThinking = false,
-                levelUpChoices = null
+                levelUpChoices = null,
+                canUndo = false
             )
         }
     }
