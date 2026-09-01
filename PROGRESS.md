@@ -1,6 +1,6 @@
 # Omok App — Development Progress Log
 
-This file tracks progress on the omok Android app in beginner-friendly language, updated at each meaningful development stage. For the original v1 build story (Phase 0–6), see `raw/android_app_dev/14_omok_project_journal.md` — that's a one-time retrospective; this file is the ongoing log going forward.
+This file tracks progress on the omok Android app in beginner-friendly language, updated at each meaningful development stage. For the original v1 build story (Phase 0–6), see `llm-wiki/raw/android_app_dev/14_omok_project_journal.md` — that's a one-time retrospective; this file is the ongoing log going forward.
 
 ---
 
